@@ -1,7 +1,6 @@
 package idl
 
 import (
-	"fmt"
 	"log"
 	"strings"
 	"sync/atomic"
@@ -71,16 +70,17 @@ func listenIdlTree() {
 	}
 	plan, err := watch.Parse(params)
 	if err != nil {
-		log.Fatalln(err)
+		hlog.Error("Parse error: ", err)
 	}
 
 	plan.Handler = func(idx uint64, data interface{}) {
 		if kvs, ok := data.(consulapi.KVPairs); ok {
 
 			newSet := make(map[string]uint64)
-			fmt.Printf("Watch (Index=%d), total %d KV :\n", idx, len(kvs))
+			hlog.Info("Watch (Index=%d), total %d KV :", idx, len(kvs))
+
 			for _, kv := range kvs {
-				fmt.Printf("  * %s (size=%d)\n", kv.Key, len(kv.Value))
+				hlog.Info("  * %s (size=%d)\n", kv.Key, len(kv.Value))
 				// split path
 				splited := strings.Split(kv.Key, "/")
 				// get idl file name without suffix
@@ -106,8 +106,7 @@ func listenIdlTree() {
 				oldSet := IDLTreeManagerInstance.value.Load().(IDLKeyModifyIndex)
 				// local cache key hash not equal with consul
 				if utils.HashKeys(newSet) != utils.HashKeys(oldSet) {
-					fmt.Println("local cache key hash not equal")
-					hlog.Debug("local cache key hash not equal")
+					hlog.Info("local cache key hash not equal")
 
 					// local cache elements equal with consul
 					if len(oldSet) == len(newSet) {
@@ -116,7 +115,7 @@ func listenIdlTree() {
 						for k := range oldSet {
 							if _, ok := newSet[k]; !ok {
 								// remove the old one
-								fmt.Printf("remove key: %s\n", k)
+								hlog.Info("remove key: %s\n", k)
 								IDLTreeManagerInstance.DelIdlTree(k)
 							}
 						}
@@ -129,20 +128,19 @@ func listenIdlTree() {
 						for k, newVal := range newSet {
 							if _, ok := oldSet[k]; !ok {
 								// add the new one
-								fmt.Printf("add key: %s\n", k)
+								hlog.Info("add key: %s\n", k)
 								IDLTreeManagerInstance.AddIdlTree(k, newVal)
 
 							}
 						}
 					} else {
-
-						fmt.Println("svc path structure changed")
+						hlog.Info("svc path structure changed")
 						// Iterate over newSet
 						// Add the ones that do not exist in the local cache
 						for k, newVal := range newSet {
 							if _, ok := oldSet[k]; !ok {
 								// add new one
-								fmt.Printf("add key: %s\n", k)
+								hlog.Info("add key: %s\n", k)
 								IDLTreeManagerInstance.AddIdlTree(k, newVal)
 							}
 						}
@@ -151,7 +149,7 @@ func listenIdlTree() {
 						// Delete the ones that do not exist in the local cache
 						for k := range oldSet {
 							if _, ok := newSet[k]; !ok {
-								fmt.Printf("remove key: %s\n", k)
+								hlog.Info("remove key: %s\n", k)
 								IDLTreeManagerInstance.DelIdlTree(k)
 							}
 						}
@@ -161,11 +159,11 @@ func listenIdlTree() {
 				} else {
 					// local cache key hash equal with consul
 					// compare modifyIndex
-					fmt.Println("compare modifyIndex")
+					hlog.Info("compare modifyIndex")
 					for k, newVal := range newSet {
 						if oldVal, ok := oldSet[k]; ok {
 							if newVal != oldVal {
-								fmt.Printf("key: %s, modifyIndex changed! old: %d, new: %d\n", k, oldVal, newVal)
+								hlog.Info("key: %s, modifyIndex changed! old: %d, new: %d\n", k, oldVal, newVal)
 								IDLTreeManagerInstance.AddIdlTree(k, newVal)
 							}
 						}
@@ -185,10 +183,10 @@ func listenIdlTree() {
 
 func (svc *SvcMapManager) svcMapUpdater() {
 	for msg := range svc.ch {
-		oldMap := svc.value.Load().(map[string]genericclient.Client)
+		oldMap := svc.value.Load().(SvcClient)
 
 		// copy on write
-		newMap := make(map[string]genericclient.Client, len(oldMap))
+		newMap := make(SvcClient, len(oldMap))
 		for k, v := range oldMap {
 			newMap[k] = v
 		}
@@ -237,7 +235,7 @@ func (idl *IDLTreeManager) idlTreeUpdater() {
 			_, exist := SvcMapManagerInstance.GetSvc(msg.Key)
 			if exist {
 				// remove the IDL generic client
-				fmt.Printf("remove SvcMapManagerInstance key: %s\n", msg.Key)
+				hlog.Info("remove SvcMapManagerInstance key: %s\n", msg.Key)
 				SvcMapManagerInstance.DelSvc(msg.Key)
 			}
 
@@ -246,7 +244,7 @@ func (idl *IDLTreeManager) idlTreeUpdater() {
 
 			if exist {
 				// remove the IDL generic client
-				fmt.Printf("remove SvcMapManagerInstance key: %s fail\n", msg.Key)
+				hlog.Info("remove SvcMapManagerInstance key: %s fail\n", msg.Key)
 			}
 
 		}
@@ -256,9 +254,9 @@ func (idl *IDLTreeManager) idlTreeUpdater() {
 
 		// print IDLTreeManagerInstance
 		// print len
-		fmt.Printf("IDLTreeManagerInstance length: %d\n", len(newTree))
+		hlog.Info("IDLTreeManagerInstance length: %d\n", len(newTree))
 		for k, v := range newTree {
-			fmt.Printf("key: %s, modifyIndex: %d\n", k, v)
+			hlog.Info("key: %s, modifyIndex: %d\n", k, v)
 		}
 	}
 }
@@ -272,7 +270,7 @@ func (svc *SvcMapManager) DelSvc(key string) {
 }
 
 func (svc *SvcMapManager) GetSvc(key string) (genericclient.Client, bool) {
-	m := svc.value.Load().(map[string]genericclient.Client)
+	m := svc.value.Load().(SvcClient)
 	v, ok := m[key]
 	return v, ok
 }
@@ -286,7 +284,7 @@ func (idl *IDLTreeManager) DelIdlTree(key string) {
 }
 
 func (idl *IDLTreeManager) GetIdlTree(key string) (genericclient.Client, bool) {
-	m := idl.value.Load().(map[string]genericclient.Client)
+	m := idl.value.Load().(SvcClient)
 	v, ok := m[key]
 	return v, ok
 }
