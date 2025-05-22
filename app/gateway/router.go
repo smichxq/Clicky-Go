@@ -4,6 +4,7 @@ package main
 
 import (
 	handler "clicky.website/clicky/gateway/biz/handler"
+	"clicky.website/clicky/gateway/biz/router/gateway"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
@@ -12,4 +13,5 @@ func customizedRegister(r *server.Hertz) {
 	r.GET("/ping", handler.Ping)
 
 	// your code ...
+	gateway.CustomizedRegister(r)
 }
