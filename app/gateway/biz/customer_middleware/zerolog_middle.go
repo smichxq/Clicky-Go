@@ -25,8 +25,8 @@ func LoggerMiddleware() app.HandlerFunc {
 			return
 		}
 
-		reqId := c.Value(RequestIDHeaderValue).(string)
-		if reqId != "" {
+		reqVal := c.Value(RequestIDHeaderValue)
+		if reqId, ok := reqVal.(string); ok && reqId != "" {
 			logger = logger.WithField("request_id", reqId)
 		}
 
