@@ -8,6 +8,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/cloudwego/runtimex v0.1.1 // indirect
 	github.com/fatih/color v1.16.0 // indirect
+	github.com/felixge/fgprof v0.9.3 // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -25,6 +26,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/rogpeppe/go-internal v1.11.0 // indirect
+	github.com/sirupsen/logrus v1.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
@@ -45,6 +47,11 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/hashicorp/consul/api v1.32.1
+	github.com/hertz-contrib/cors v0.1.0
+	github.com/hertz-contrib/gzip v0.0.3
+	github.com/hertz-contrib/logger/accesslog v0.0.0-20241107070745-e4ce8c54dd97
+	github.com/hertz-contrib/logger/logrus v1.0.1
+	github.com/hertz-contrib/pprof v0.1.2
 	github.com/kitex-contrib/config-consul v0.1.4
 	github.com/kitex-contrib/registry-consul v0.2.0
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
@@ -56,5 +63,6 @@ require (
 	golang.org/x/arch v0.14.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/validator.v2 v2.0.1
 )
