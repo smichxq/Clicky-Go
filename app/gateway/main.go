@@ -14,8 +14,10 @@ import (
 	"github.com/hertz-contrib/cors"
 	"github.com/hertz-contrib/gzip"
 	"github.com/hertz-contrib/logger/accesslog"
-	hertzlogrus "github.com/hertz-contrib/logger/logrus"
+	hertzZerolog "github.com/hertz-contrib/logger/zerolog"
 	"github.com/hertz-contrib/pprof"
+	"github.com/pingcap/log"
+	"github.com/rs/zerolog/diode"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -38,22 +40,36 @@ func main() {
 }
 
 func registerMiddleware(h *server.Hertz) {
-	// log
-	logger := hertzlogrus.NewLogger()
-	hlog.SetLogger(logger)
-	hlog.SetLevel(conf.LogLevel())
-	asyncWriter := &zapcore.BufferedWriteSyncer{
-		WS: zapcore.AddSync(&lumberjack.Logger{
-			Filename:   conf.GetConf().Hertz.LogFileName,
-			MaxSize:    conf.GetConf().Hertz.LogMaxSize,
-			MaxBackups: conf.GetConf().Hertz.LogMaxBackups,
-			MaxAge:     conf.GetConf().Hertz.LogMaxAge,
-		}),
-		FlushInterval: time.Minute,
+	lj := &lumberjack.Logger{
+		Filename:   conf.GetConf().Hertz.LogFileName,
+		MaxSize:    conf.GetConf().Hertz.LogMaxSize,
+		MaxBackups: conf.GetConf().Hertz.LogMaxBackups,
+		MaxAge:     conf.GetConf().Hertz.LogMaxAge,
+		Compress:   false,
 	}
-	hlog.SetOutput(asyncWriter)
+	writer := diode.NewWriter(lj, 1000, time.Second, func(missed int) {
+		log.Warn("dropped_logs", zapcore.Field{
+			Key:     "dropped_logs",
+			Type:    zapcore.Int64Type,
+			Integer: int64(missed),
+			String:  "logger dropped logs",
+		})
+	})
+	asyncWriter, flushFunc := writer, func() {
+		writer.Close()
+		_ = lj.Close()
+	}
+
+	// log
+	hlog.SetLogger(hertzZerolog.New(
+		hertzZerolog.WithOutput(asyncWriter),   // allows to specify output
+		hertzZerolog.WithLevel(hlog.LevelInfo), // option with log level
+		hertzZerolog.WithTimestamp(),           // option with timestamp
+		hertzZerolog.WithCaller()))             // option with caller
+
+	// flush before shutdown
 	h.OnShutdown = append(h.OnShutdown, func(ctx context.Context) {
-		asyncWriter.Sync()
+		flushFunc()
 	})
 
 	// pprof
@@ -76,4 +92,43 @@ func registerMiddleware(h *server.Hertz) {
 
 	// cores
 	h.Use(cors.Default())
+}
+
+// humanEncoderConfig copy from zap
+func humanEncoderConfig() zapcore.EncoderConfig {
+	cfg := testEncoderConfig()
+	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	cfg.EncodeLevel = zapcore.CapitalLevelEncoder
+	cfg.EncodeDuration = zapcore.StringDurationEncoder
+	return cfg
+}
+
+func getWriteSyncer(file string) zapcore.WriteSyncer {
+	lumberJackLogger := &lumberjack.Logger{
+		Filename:   file,
+		MaxSize:    10,
+		MaxBackups: 50000,
+		MaxAge:     1000,
+		Compress:   true,
+		LocalTime:  true,
+	}
+	return zapcore.AddSync(lumberJackLogger)
+}
+
+// testEncoderConfig encoder config for testing, copy from zap
+func testEncoderConfig() zapcore.EncoderConfig {
+	return zapcore.EncoderConfig{
+		MessageKey:     "msg",
+		LevelKey:       "level",
+		NameKey:        "name",
+		TimeKey:        "ts",
+		CallerKey:      "caller",
+		FunctionKey:    "func",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     "\n",
+		EncodeTime:     zapcore.EpochTimeEncoder,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
 }
