@@ -28,9 +28,10 @@ var (
 type Config struct {
 	Env string
 
-	Hertz Hertz `yaml:"hertz"`
-	MySQL MySQL `yaml:"mysql"`
-	Redis Redis `yaml:"redis"`
+	Hertz    Hertz    `yaml:"hertz"`
+	MySQL    MySQL    `yaml:"mysql"`
+	Redis    Redis    `yaml:"redis"`
+	Registry Registry `yaml:"registry"`
 }
 
 type MySQL struct {
@@ -43,18 +44,25 @@ type Redis struct {
 	Username string `yaml:"username"`
 	DB       int    `yaml:"db"`
 }
+type Registry struct {
+	RegistryAddress []string `yaml:"registry_address"`
+	Username        string   `yaml:"username"`
+	Password        string   `yaml:"password"`
+}
 
 type Hertz struct {
-	Service         string `yaml:"service"`
-	Address         string `yaml:"address"`
-	EnablePprof     bool   `yaml:"enable_pprof"`
-	EnableGzip      bool   `yaml:"enable_gzip"`
-	EnableAccessLog bool   `yaml:"enable_access_log"`
-	LogLevel        string `yaml:"log_level"`
-	LogFileName     string `yaml:"log_file_name"`
-	LogMaxSize      int    `yaml:"log_max_size"`
-	LogMaxBackups   int    `yaml:"log_max_backups"`
-	LogMaxAge       int    `yaml:"log_max_age"`
+	Service          string `yaml:"service"`
+	Address          string `yaml:"address"`
+	EnablePprof      bool   `yaml:"enable_pprof"`
+	EnableGzip       bool   `yaml:"enable_gzip"`
+	EnableAccessLog  bool   `yaml:"enable_access_log"`
+	LogLevel         string `yaml:"log_level"`
+	LogFileName      string `yaml:"log_file_name"`
+	LogMaxSize       int    `yaml:"log_max_size"`
+	LogMaxBackups    int    `yaml:"log_max_backups"`
+	LogMaxAge        int    `yaml:"log_max_age"`
+	MetricsPort      string `yaml:"metrics_port"`
+	ConsulHealthAddr string `yaml:"http_consul_health_addr"`
 }
 
 // GetConf gets configuration instance
@@ -95,7 +103,6 @@ func initConfRegister() {
 	}
 	ConsulOfficeClient = consulOfficeClient
 
-	// 初始化
 	client, err := consul.NewClient(consul.Options{
 		Addr: "192.168.3.6:8500",
 	})
@@ -103,9 +110,8 @@ func initConfRegister() {
 		hlog.Fatalf("consul client init failed: %v", err)
 	}
 
-	// 注册成功回调
 	client.RegisterConfigCallback("gateway/test.yaml", consul.AllocateUniqueID(), func(s string, cp consul.ConfigParser) {
-		// 映射到conf
+		// map to config
 		err = yaml.Unmarshal([]byte(s), &conf)
 		if err != nil {
 			panic(err)
@@ -118,7 +124,7 @@ func initConfRegister() {
 		panic(err)
 	}
 
-	// 全局
+	// global
 	ConsulClient = &client
 	ConsulResolver = &consulResolver
 }
