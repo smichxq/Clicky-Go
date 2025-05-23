@@ -6,8 +6,11 @@ import (
 	"context"
 	"time"
 
+	"clicky.website/clicky/gateway/biz/customer_middleware"
 	"clicky.website/clicky/gateway/biz/idl"
 	"clicky.website/clicky/gateway/conf"
+	"clicky.wesite/clicky/common/mtl"
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/middlewares/server/recovery"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -15,11 +18,21 @@ import (
 	"github.com/hertz-contrib/gzip"
 	"github.com/hertz-contrib/logger/accesslog"
 	hertzZerolog "github.com/hertz-contrib/logger/zerolog"
+	prometheus "github.com/hertz-contrib/monitor-prometheus"
+	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	"github.com/hertz-contrib/pprof"
 	"github.com/pingcap/log"
 	"github.com/rs/zerolog/diode"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+var (
+	ServiceName      = conf.GetConf().Hertz.Service
+	RegisterAddr     = conf.GetConf().Registry.RegistryAddress[0]
+	ConsulHealthAddr = conf.GetConf().Hertz.ConsulHealthAddr
+	MetricsPort      = conf.GetConf().Hertz.MetricsPort
 )
 
 func main() {
@@ -28,11 +41,39 @@ func main() {
 		panic("get config failed")
 	}
 
+	consul, registryInfo := mtl.InitMetric(ServiceName, MetricsPort, RegisterAddr)
+	defer consul.Deregister(registryInfo)
+
+	opentelemetry := mtl.InitTracing(ServiceName)
+	defer opentelemetry.Shutdown(context.Background())
+
+	// opentelemetry
+	tracer, cfg := hertztracing.NewServerTracer(
+		hertztracing.WithCustomResponseHandler(func(c context.Context, ctx *app.RequestContext) {
+			ctx.Header("click-trace-id", oteltrace.SpanFromContext(c).SpanContext().TraceID().String())
+		}),
+	)
+
 	address := conf.GetConf().Hertz.Address
 
 	idl.InitSvcMap()
-	h := server.New(server.WithHostPorts(address))
+	h := server.New(server.WithHostPorts(address),
+		// prometheus
+		server.WithTracer(prometheus.NewServerTracer(
+			"",
+			"",
+			prometheus.WithDisableServer(true),
+			prometheus.WithRegistry(mtl.Registry),
+		)),
+		// opentelemetry
+		tracer,
+	)
+
+	// opentelemetry
+	h.Use(hertztracing.ServerMiddleware(cfg))
+
 	registerMiddleware(h)
+	h.Use(customer_middleware.LoggerMiddleware())
 
 	register(h)
 
@@ -40,6 +81,7 @@ func main() {
 }
 
 func registerMiddleware(h *server.Hertz) {
+	// log
 	lj := &lumberjack.Logger{
 		Filename:   conf.GetConf().Hertz.LogFileName,
 		MaxSize:    conf.GetConf().Hertz.LogMaxSize,
@@ -60,12 +102,12 @@ func registerMiddleware(h *server.Hertz) {
 		_ = lj.Close()
 	}
 
-	// log
 	hlog.SetLogger(hertzZerolog.New(
-		hertzZerolog.WithOutput(asyncWriter),   // allows to specify output
-		hertzZerolog.WithLevel(hlog.LevelInfo), // option with log level
-		hertzZerolog.WithTimestamp(),           // option with timestamp
-		hertzZerolog.WithCaller()))             // option with caller
+		hertzZerolog.WithOutput(asyncWriter),    // allows to specify output
+		hertzZerolog.WithLevel(conf.LogLevel()), // option with log level
+		hertzZerolog.WithTimestamp(),            // option with timestamp
+		hertzZerolog.WithCallerSkipFrameCount(5),
+	)) // option with caller
 
 	// flush before shutdown
 	h.OnShutdown = append(h.OnShutdown, func(ctx context.Context) {
@@ -92,43 +134,4 @@ func registerMiddleware(h *server.Hertz) {
 
 	// cores
 	h.Use(cors.Default())
-}
-
-// humanEncoderConfig copy from zap
-func humanEncoderConfig() zapcore.EncoderConfig {
-	cfg := testEncoderConfig()
-	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
-	cfg.EncodeLevel = zapcore.CapitalLevelEncoder
-	cfg.EncodeDuration = zapcore.StringDurationEncoder
-	return cfg
-}
-
-func getWriteSyncer(file string) zapcore.WriteSyncer {
-	lumberJackLogger := &lumberjack.Logger{
-		Filename:   file,
-		MaxSize:    10,
-		MaxBackups: 50000,
-		MaxAge:     1000,
-		Compress:   true,
-		LocalTime:  true,
-	}
-	return zapcore.AddSync(lumberJackLogger)
-}
-
-// testEncoderConfig encoder config for testing, copy from zap
-func testEncoderConfig() zapcore.EncoderConfig {
-	return zapcore.EncoderConfig{
-		MessageKey:     "msg",
-		LevelKey:       "level",
-		NameKey:        "name",
-		TimeKey:        "ts",
-		CallerKey:      "caller",
-		FunctionKey:    "func",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     "\n",
-		EncodeTime:     zapcore.EpochTimeEncoder,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
-	}
 }
