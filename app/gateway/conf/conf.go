@@ -1,7 +1,6 @@
 package conf
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -96,7 +95,6 @@ func initConf() {
 }
 
 func initConfRegister() {
-	fmt.Println("RegisterConfigCallback success")
 	consulOfficeClient, err := consulOffice.NewClient(&consulOffice.Config{Address: "192.168.3.6:8500"})
 	if err != nil {
 		hlog.Fatalf("consul client init failed: %v", err)
@@ -116,7 +114,7 @@ func initConfRegister() {
 		if err != nil {
 			panic(err)
 		}
-		pretty.Printf("%+v\n", conf)
+		hlog.Info("config updated: ", s)
 	})
 
 	consulResolver, err := registryConsul.NewConsulResolver("192.168.3.6:8500")
