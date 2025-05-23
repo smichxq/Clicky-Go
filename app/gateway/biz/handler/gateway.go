@@ -8,9 +8,9 @@ import (
 	"clicky.website/clicky/gateway/biz/idl"
 	"clicky.website/clicky/gateway/biz/utils"
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/cloudwego/kitex/pkg/generic"
-	"github.com/cloudwego/kitex/pkg/klog"
 )
 
 func GenericCall(ctx context.Context, c *app.RequestContext) {
@@ -23,14 +23,14 @@ func GenericCall(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	fmt.Println("uri:", c.URI().String())
+	hlog.Info("uri: ", c.URI().String())
 
-	reqq, errr := http.NewRequest(http.MethodGet, c.URI().String(), nil)
-	if errr != nil {
-		panic(errr)
+	req, err := http.NewRequest(http.MethodGet, c.URI().String(), nil)
+	if err != nil {
+		panic(err)
 	}
 
-	customReq, errr := generic.FromHTTPRequest(reqq)
+	customReq, errr := generic.FromHTTPRequest(req)
 
 	if errr != nil {
 		panic(errr)
@@ -38,10 +38,10 @@ func GenericCall(ctx context.Context, c *app.RequestContext) {
 
 	// The second parameter is the method name mapped from the HTTP request.
 	// It can be an empty string if not applicable.
-	resp, errr := client.GenericCall(ctx, "", customReq)
-	if errr != nil {
-		klog.Errorf("GenericCall failed: %v", errr)
-		panic(errr)
+	resp, err := client.GenericCall(ctx, "", customReq)
+	if err != nil {
+		hlog.Error("GenericCall failed: ", err)
+		panic(err)
 	}
 
 	realResp := resp.(*generic.HTTPResponse)
