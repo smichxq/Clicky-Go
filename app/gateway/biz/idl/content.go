@@ -1,16 +1,14 @@
 package idl
 
 import (
-	"fmt"
 	"strings"
 
 	"clicky.website/clicky/gateway/conf"
+	"clicky.website/clicky/gateway/suite"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
-	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/client/genericclient"
+	"github.com/cloudwego/kitex/pkg/circuitbreak"
 	"github.com/cloudwego/kitex/pkg/generic"
-	"github.com/cloudwego/kitex/pkg/transmeta"
-	"github.com/cloudwego/kitex/transport"
 )
 
 // Store IDL file path(consul key) ane content
@@ -39,14 +37,13 @@ func (idlc *IDLContent) pharse(key string) {
 
 	// if pair is nil, it means the key is not found
 	if pair == nil {
-		fmt.Printf("Key:%s not found\n", key)
-		hlog.Warn("Key not found: %s", key)
+		hlog.Warnf("Key not found: %s", key)
 	} else {
-		fmt.Printf("Key: %s\nValue: %s\n", pair.Key, pair.Value)
+		hlog.Debugf("Key: %s\nValue: %s\n", pair.Key, pair.Value)
 
 		// main IDL file
 		if "service" == strings.Split(pair.Key, "/")[2] {
-			hlog.Debug("Main IDL file: %s", pair.Key)
+			hlog.Debugf("Main IDL file: %s", pair.Key)
 
 			lines := strings.Split(string(pair.Value), "\n")
 
@@ -63,7 +60,7 @@ func (idlc *IDLContent) pharse(key string) {
 					// cache include path and content
 					idlc.PathContent[pair.Key] = string(pair.Value)
 					idlc.MainIdlPath = pair.Key
-					hlog.Debug("MainPathContent: %s", pair.Key)
+					hlog.Debugf("MainPathContent: %s", pair.Key)
 					hasInclude = true
 
 				}
@@ -89,8 +86,13 @@ func (idle *IDLContent) getGenericClient() {
 		idle.MainIdlPath,
 		idle.PathContent)
 	if err != nil {
-		fmt.Printf("error: %v\n", err)
 		hlog.Errorf("error: %v\n", err)
+	}
+
+	cbMap := buildCBConfigMap(idle)
+
+	for k := range cbMap {
+		hlog.Debugf("cbm %s \n", k)
 	}
 
 	// get generic client
@@ -99,19 +101,43 @@ func (idle *IDLContent) getGenericClient() {
 		panic(err)
 	}
 
-	// get service name from main idl path
-	svcName := strings.Split(idle.MainIdlPath, "/")[3]
+	// get service name from idl
+	svcName := g.IDLServiceName()
+
+	hlog.Debugf("Service name: %s", svcName)
 
 	client, err := genericclient.NewClient(
 		svcName,
 		g,
-		client.WithResolver(*conf.ConsulResolver),
-		client.WithTransportProtocol(transport.TTHeader),
-		client.WithMetaHandler(transmeta.ClientTTHeaderHandler),
+		suite.GenericSuite(cbMap)...,
 	)
 	if err != nil {
 		panic(err)
 	}
 
 	SvcMapManagerInstance.AddSvc(svcName, client)
+}
+
+func buildCBConfigMap(idle *IDLContent) map[string]circuitbreak.CBConfig {
+	cbConfig := make(map[string]circuitbreak.CBConfig)
+	thrift, err := generic.ParseContent(idle.MainIdlPath, idle.PathContent[idle.MainIdlPath], idle.PathContent, true)
+	if err != nil {
+		hlog.Error(err)
+	}
+
+	svc := thrift.GetServices()
+
+	for _, v := range svc {
+		for _, f := range v.Functions {
+			key := "gateway" + "/" + v.Name + "/" + f.Name
+			cbConfig[key] = circuitbreak.CBConfig{
+				Enable:    true,
+				ErrRate:   0.2,
+				MinSample: 10,
+			}
+
+		}
+	}
+
+	return cbConfig
 }
