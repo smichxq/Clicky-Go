@@ -129,7 +129,7 @@ func buildCBConfigMap(idle *IDLContent) map[string]circuitbreak.CBConfig {
 
 	for _, v := range svc {
 		for _, f := range v.Functions {
-			key := "gateway" + "/" + v.Name + "/" + f.Name
+			key := conf.GetConf().Hertz.Service + "/" + v.Name + "/" + f.Name
 			cbConfig[key] = circuitbreak.CBConfig{
 				Enable:    true,
 				ErrRate:   0.2,
