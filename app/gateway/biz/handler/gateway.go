@@ -1,11 +1,11 @@
 package handler
 
 import (
+	"clicky.website/clicky/gateway/idl"
 	"context"
 	"fmt"
 	"net/http"
 
-	"clicky.website/clicky/gateway/biz/idl"
 	"clicky.website/clicky/gateway/biz/utils"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/hlog"

@@ -3,11 +3,11 @@
 package main
 
 import (
+	"clicky.website/clicky/gateway/idl"
 	"context"
 	"time"
 
 	"clicky.website/clicky/gateway/biz/customer_middleware"
-	"clicky.website/clicky/gateway/biz/idl"
 	"clicky.website/clicky/gateway/conf"
 	"clicky.wesite/clicky/common/mtl"
 	"github.com/cloudwego/hertz/pkg/app"
