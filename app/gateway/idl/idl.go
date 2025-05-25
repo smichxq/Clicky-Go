@@ -218,13 +218,13 @@ func (idl *IDLTreeManager) idlTreeUpdater() {
 		switch msg.Op {
 		case "add":
 			newTree[msg.Key] = msg.Value
-			idlc := NewIDLContent()
+			idle := NewIDLContent()
 			// filter service
 			if "service" == strings.Split(msg.Key, "/")[2] {
 				// parse the IDL file dependency
-				idlc.pharse(msg.Key)
+				idle.pharse(msg.Key)
 				// insert the IDL generic client
-				idlc.getGenericClient()
+				idle.getGenericClient()
 
 			}
 
