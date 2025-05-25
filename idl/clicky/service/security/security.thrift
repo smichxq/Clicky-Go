@@ -14,7 +14,6 @@ struct Code2SessionResp {
 service security {
     Code2SessionResp Code2Session(1: Code2SessionReq req) (
         api.get = '/security/code2session',
-//        api.baseurl = '192.168.3.6:8080',
         api.param = 'true',
     )
     empty.EmptyResp Demo(1: empty.EmptyResp req)
