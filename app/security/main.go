@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"clicky.website/clicky/security/biz/dal"
 	"clicky.website/clicky/security/conf"
 	"clicky.website/clicky/security/kitex_gen/security/security"
+	"clicky.wesite/clicky/common/mtl"
 	"clicky.wesite/clicky/common/serversuite"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -28,19 +30,16 @@ var (
 )
 
 func main() {
-	opts := kitexInit()
+	optl := mtl.InitTracing(ServiceName)
+	defer optl.Shutdown(context.Background())
+
+	mtl.InitMetric(ServiceName, MetricsPort, RegisterAddr)
 
 	dal.Init()
 
-	suite := serversuite.CommonServerSuite{
-		CurrentServiceName: ServiceName,
-		RegistryAddr:       RegisterAddr,
-		ConsulHealthAddr:   ConsulHealthAddr,
-	}
+	opts := kitexInit()
 
-	opts = append(opts, suite.Options()...)
-
-	// 健康检查
+	// health check
 	go StartHealthCheckServer(":" + strings.Split(ConsulHealthAddr, ":")[1])
 
 	svr := security.NewServer(new(SecurityImpl), opts...)
@@ -52,6 +51,13 @@ func main() {
 }
 
 func kitexInit() (opts []server.Option) {
+	suite := serversuite.CommonServerSuite{
+		CurrentServiceName: ServiceName,
+		RegistryAddr:       RegisterAddr,
+		ConsulHealthAddr:   ConsulHealthAddr,
+	}
+
+	opts = append(opts, suite.Options()...)
 	// address
 	addr, err := net.ResolveTCPAddr("tcp", conf.GetConf().Kitex.Address)
 	if err != nil {
