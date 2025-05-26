@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/transport"
+	"github.com/kitex-contrib/obs-opentelemetry/tracing"
 )
 
 func circuitbreakSuite(metricsKeyCfg map[string]circuitbreak.CBConfig) []client.Option {
@@ -52,7 +53,16 @@ func baseSuite() []client.Option {
 	}
 }
 
+func tracingSuite() []client.Option {
+	return []client.Option{
+		client.WithSuite(tracing.NewClientSuite()),
+	}
+}
+
 // metricsKey: "fromServiceName/ToServiceName/method"
 func GenericSuite(metricsKeyCfg map[string]circuitbreak.CBConfig) []client.Option {
-	return append(baseSuite(), circuitbreakSuite(metricsKeyCfg)...)
+	opts := append(baseSuite(), circuitbreakSuite(metricsKeyCfg)...)
+
+	opts = append(opts, tracingSuite()...)
+	return opts
 }
