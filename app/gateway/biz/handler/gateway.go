@@ -28,13 +28,16 @@ func GenericCall(ctx context.Context, c *app.RequestContext) {
 
 	req, err := http.NewRequest(http.MethodGet, c.URI().String(), nil)
 	if err != nil {
-		panic(err)
+		utils.SendErrResponse(ctx, c, consts.StatusNotFound, fmt.Errorf(""))
+		hlog.Errorf("build http request fail: ", err)
+		return
 	}
 
-	customReq, errr := generic.FromHTTPRequest(req)
-
-	if errr != nil {
-		panic(errr)
+	customReq, err := generic.FromHTTPRequest(req)
+	if err != nil {
+		utils.SendErrResponse(ctx, c, consts.StatusNotFound, fmt.Errorf(""))
+		hlog.Errorf("build generic request fail: ", err)
+		return
 	}
 
 	// The second parameter is the method name mapped from the HTTP request.
