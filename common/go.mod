@@ -2,6 +2,8 @@ module clicky.wesite/clicky/common
 
 go 1.24.2
 
+replace clicky.wesite/clicky/common/http_client_pool => ./http_client_pool
+
 require (
 	github.com/cloudwego/kitex v0.13.1
 	github.com/hashicorp/consul/api v1.32.1
