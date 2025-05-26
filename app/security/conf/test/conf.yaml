@@ -23,3 +23,8 @@ redis:
   username: ""
   password: ""
   db: 0
+
+wx_mini:
+  app_id: "wx1234567890"
+  app_secret: "1234567890abcdef1234567890abcdef"
+  

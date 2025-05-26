@@ -25,6 +25,7 @@ type Config struct {
 	MySQL    MySQL    `yaml:"mysql"`
 	Redis    Redis    `yaml:"redis"`
 	Registry Registry `yaml:"registry"`
+	WxMini   WxMini   `yaml:"wx_mini"`
 }
 
 type MySQL struct {
@@ -54,6 +55,11 @@ type Registry struct {
 	RegistryAddress []string `yaml:"registry_address"`
 	Username        string   `yaml:"username"`
 	Password        string   `yaml:"password"`
+}
+
+type WxMini struct {
+	AppId  string `yaml:"app_id"`
+	Secret string `yaml:"secret"`
 }
 
 // GetConf gets configuration instance
