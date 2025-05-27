@@ -58,8 +58,9 @@ type Registry struct {
 }
 
 type WxMini struct {
-	AppId  string `yaml:"app_id"`
-	Secret string `yaml:"app_secret"`
+	AppId         string  `yaml:"app_id"`
+	Secret        string  `yaml:"app_secret"`
+	ApiRetryCodes []int32 `yaml:"api_retry_code"`
 }
 
 // GetConf gets configuration instance
