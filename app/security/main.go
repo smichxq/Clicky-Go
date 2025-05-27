@@ -11,13 +11,15 @@ import (
 	"clicky.website/clicky/security/biz/dal"
 	"clicky.website/clicky/security/conf"
 	"clicky.website/clicky/security/kitex_gen/security/security"
+	httpclientpool "clicky.wesite/clicky/common/http_client_pool"
 	"clicky.wesite/clicky/common/mtl"
 	"clicky.wesite/clicky/common/serversuite"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
-	kitexlogrus "github.com/kitex-contrib/obs-opentelemetry/logging/logrus"
+	kitexzap "github.com/kitex-contrib/obs-opentelemetry/logging/zap"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -30,6 +32,7 @@ var (
 )
 
 func main() {
+	httpclientpool.Init()
 	optl := mtl.InitTracing(ServiceName)
 	defer optl.Shutdown(context.Background())
 
@@ -73,8 +76,15 @@ func kitexInit() (opts []server.Option) {
 	opts = append(opts, server.WithMetaHandler(transmeta.ServerTTHeaderHandler))
 
 	// klog
-	logger := kitexlogrus.NewLogger()
-	klog.SetLogger(logger)
+	cfg := zap.NewProductionEncoderConfig()
+	// ts encode to ISO8601 format
+	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	klog.SetLogger(kitexzap.NewLogger(
+		kitexzap.WithCoreEnc(zapcore.NewJSONEncoder(cfg)),
+		kitexzap.WithZapOptions(
+			zap.AddCallerSkip(8),
+			zap.AddCaller(),
+		)))
 	klog.SetLevel(conf.LogLevel())
 	asyncWriter := &zapcore.BufferedWriteSyncer{
 		WS: zapcore.AddSync(&lumberjack.Logger{
@@ -83,12 +93,13 @@ func kitexInit() (opts []server.Option) {
 			MaxBackups: conf.GetConf().Kitex.LogMaxBackups,
 			MaxAge:     conf.GetConf().Kitex.LogMaxAge,
 		}),
-		FlushInterval: time.Minute,
+		FlushInterval: time.Second * 1,
 	}
 	klog.SetOutput(asyncWriter)
 	server.RegisterShutdownHook(func() {
 		asyncWriter.Sync()
 	})
+
 	return
 }
 
