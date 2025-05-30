@@ -1,0 +1,304 @@
+version: "3.8"
+
+services:
+
+  # === Etcd cluster ===
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: etcd1
+    volumes:
+      - etcd1-data:/etcd-data
+    command: >
+      /usr/local/bin/etcd --name etcd1 --initial-advertise-peer-urls http://etcd1:2380 --listen-peer-urls http://0.0.0.0:2380 --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd1:2379 --initial-cluster-token etcd-cluster --initial-cluster etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380 --initial-cluster-state new --data-dir /etcd-data
+    networks: [ vitessnet ]
+
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: etcd2
+    volumes:
+      - etcd2-data:/etcd-data
+    depends_on: [ etcd1 ]
+    command: >
+      /usr/local/bin/etcd --name etcd2 --initial-advertise-peer-urls http://etcd2:2380 --listen-peer-urls http://0.0.0.0:2380 --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd2:2379 --initial-cluster-token etcd-cluster --initial-cluster etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380 --data-dir /etcd-data
+    networks: [ vitessnet ]
+
+  etcd3:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: etcd3
+    volumes:
+      - etcd3-data:/etcd-data
+    depends_on: [ etcd2 ]
+    command: >
+      /usr/local/bin/etcd --name etcd3 --initial-advertise-peer-urls http://etcd3:2380 --listen-peer-urls http://0.0.0.0:2380 --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd3:2379 --initial-cluster-token etcd-cluster --initial-cluster etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380 --data-dir /etcd-data
+    networks: [ vitessnet ]
+
+  # === vtctld HA cluster (if need)===
+  vtctld:
+    image: vitess/vtctld:v22.0.0
+    ports:
+      - "15000:15000"
+      - "15001:15001"
+    depends_on: [ etcd1, etcd2, etcd3 ]
+    volumes:
+      - vtctld-logs:/vt/log
+    command: >
+      /vt/bin/vtctld --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --log_dir=/vt/log --port=15001 --grpc_port=15000 --service_map=grpc-vtctl,grpc-vtctld --cell=zone1
+    networks: [ vitessnet ]
+    user: vitess
+  vtctldc:
+    image: vitess/vtctldclient:v22.0.0 # <-- 关键修改：更换为 vtctldclient 镜像
+    networks: [ vitessnet ]
+    depends_on:
+      - vtctld # 确保 vtctld 已经启动并可用
+    command: [ "tail", "-f", "/dev/null" ] # 保持容器运行，以便你可以 exec 进入
+    user: vitess # 之前建议的，以非 root 用户运行
+
+  # === Shard 0: primary+replica ===
+  mysql101:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+    command: --gtid-mode=ON --enforce-gtid-consistency=ON --log-bin=mysql-bin --server-id=101 --binlog-format=ROW --log-slave-updates=ON
+    volumes:
+      # - ./scripts/mysql101.cnf:/etc/my.cnf
+      - mysql101-data:/var/lib/mysql # Persistent MySQL data
+      - ./scripts/init-users.sql:/docker-entrypoint-initdb.d/init-users.sql
+    networks: [ vitessnet ]
+
+  vttablet101:
+    image: vitess/vttablet:v22.0.0
+    ports: [ "15101:15101", "16101:16101" ]
+    depends_on: [ mysql101, vtctld ]
+    environment:
+      - TABLET_UID=101
+    command: >
+      /vt/bin/vttablet --init_tablet_type=replica --tablet-path=zone1-101 --init_keyspace=ks1 --init_shard=-80 --port=15101 --grpc_port=16101 --db_host=mysql101 --db_port=3306 --db_app_user=vt_app --db_app_password=123 --db_allprivs_user=vt_allprivs --db_allprivs_password=123 --db_dba_user=vt_dba --db_dba_password=123 --db_filtered_user=vt_filtered --db_filtered_password=123 --db_repl_user=vt_repl --db_repl_password=123 --health_check_interval=5s --topo_implementation=etcd2 --service_map 'grpc-queryservice,grpc-tabletmanager,grpc-throttler' --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --log_dir=/vt/log/vttablet101 --alsologtostderr
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vttablet101-logs:/vt/log
+    user: vitess
+
+  mysql102:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+    command: --gtid-mode=ON --enforce-gtid-consistency=ON --log-bin=mysql-bin --server-id=102 --binlog-format=ROW --log-slave-updates=ON
+    volumes:
+      # - ./scripts/mysql102.cnf:/etc/my.cnf
+      - mysql102-data:/var/lib/mysql # Persistent MySQL data
+      - ./scripts/init-users.sql:/docker-entrypoint-initdb.d/init-users.sql
+    networks: [ vitessnet ]
+
+  vttablet102:
+    image: vitess/vttablet:v22.0.0
+    ports: [ "15201:15201", "16201:16201" ]
+    depends_on: [ mysql102, vtctld ]
+    environment:
+      - TABLET_UID=102
+      # - TABLET_TYPE=replica
+      # volumes:
+      #   - ./scripts/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
+    command: >
+      /vt/bin/vttablet --init_tablet_type=replica --tablet-path=zone1-102 --init_keyspace=ks1 --init_shard=-80 --port=15201 --grpc_port=16201 --db_host=mysql102 --db_port=3306 --db_app_user=vt_app --db_app_password=123 --db_allprivs_user=vt_allprivs --db_allprivs_password=123 --db_dba_user=vt_dba --db_dba_password=123 --db_filtered_user=vt_filtered --db_filtered_password=123 --db_repl_user=vt_repl --db_repl_password=123 --health_check_interval=5s --topo_implementation=etcd2 --service_map=grpc-queryservice,grpc-tabletmanager,grpc-throttler --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --log_dir=/vt/log/vttablet102 --alsologtostderr
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vttablet102-logs:/vt/log
+    user: vitess
+
+  # === Shard 1: primary+replica ===
+  mysql103:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+    command: --gtid-mode=ON --enforce-gtid-consistency=ON --log-bin=mysql-bin --server-id=103 --binlog-format=ROW --log-slave-updates=ON
+    volumes:
+      # - ./scripts/mysql103.cnf:/etc/my.cnf
+      - mysql103-data:/var/lib/mysql # Persistent MySQL data
+      - ./scripts/init-users.sql:/docker-entrypoint-initdb.d/init-users.sql
+    networks: [ vitessnet ]
+
+  vttablet103:
+    image: vitess/vttablet:v22.0.0
+    ports: [ "15301:15301", "16301:16301" ]
+    depends_on: [ mysql103, vtctld ]
+    environment:
+      - TABLET_UID=103
+      # - TABLET_TYPE=primary
+      # volumes:
+      #   - ./scripts/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
+    command: >
+      /vt/bin/vttablet --init_tablet_type=replica --tablet-path=zone1-103 --init_keyspace=ks1 --init_shard=80- --port=15301 --grpc_port=16301 --db_host=mysql103 --db_port=3306 --db_app_user=vt_app --db_app_password=123 --db_allprivs_user=vt_allprivs --db_allprivs_password=123 --db_dba_user=vt_dba --db_dba_password=123 --db_filtered_user=vt_filtered --db_filtered_password=123 --db_repl_user=vt_repl --db_repl_password=123 --health_check_interval=5s --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --service_map=grpc-queryservice,grpc-tabletmanager,grpc-throttler --log_dir=/vt/log/vttablet103 --alsologtostderr
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vttablet103-logs:/vt/log
+    user: vitess
+
+  mysql104:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+    command: --gtid-mode=ON --enforce-gtid-consistency=ON --log-bin=mysql-bin --server-id=104 --binlog-format=ROW --log-slave-updates=ON
+    volumes:
+      # - ./scripts/mysql104.cnf:/etc/my.cnf
+      - mysql104-data:/var/lib/mysql # Persistent MySQL data
+      - ./scripts/init-users.sql:/docker-entrypoint-initdb.d/init-users.sql
+    networks: [ vitessnet ]
+
+  vttablet104:
+    image: vitess/vttablet:v22.0.0
+    ports: [ "15401:15401", "16401:16401" ]
+    depends_on: [ mysql104, vtctld ]
+    environment:
+      - TABLET_UID=104
+    command: >
+      /vt/bin/vttablet --init_tablet_type=replica --tablet-path=zone1-104 --init_keyspace=ks1 --init_shard=80- --port=15401 --grpc_port=16401 --db_host=mysql104 --db_port=3306 --db_app_user=vt_app --db_app_password=123 --db_allprivs_user=vt_allprivs --db_allprivs_password=123 --db_dba_user=vt_dba --db_dba_password=123 --db_filtered_user=vt_filtered --db_filtered_password=123 --db_repl_user=vt_repl --db_repl_password=123 --health_check_interval=5s --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --service_map=grpc-queryservice,grpc-tabletmanager,grpc-throttler --topo_global_root=/vitess/global --log_dir=/vt/log/vttablet104 --alsologtostderr
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vttablet104-logs:/vt/log
+    user: vitess
+
+  # === vtgate (HA: multiple instances) ===
+  vtgate1:
+    image: vitess/vtgate:v22.0.0
+    ports: [ "15306:15306", "17306:17306" ]
+    depends_on: [ vtctld ]
+    command: >
+      /vt/bin/vtgate --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --port=15306 --grpc_port=16306 --mysql_server_port=17306 --cell=zone1 --cells_to_watch=zone1 --tablet_types_to_wait=PRIMARY,REPLICA --log_dir=/vt/log/vtgate1 --alsologtostderr --mysql_auth_server_impl=none
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vtgate1-logs:/vt/log
+    user: vitess
+
+  vtgate2:
+    image: vitess/vtgate:v22.0.0
+    ports: [ "15307:15306", "17316:17316" ]
+    depends_on: [ vtctld ]
+    command: >
+      /vt/bin/vtgate --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --port=15306 --grpc_port=16316 --mysql_server_port=17316 --cell=zone1 --cells_to_watch=zone1 --tablet_types_to_wait=PRIMARY,REPLICA --log_dir=/vt/log/vtgate2 --alsologtostderr --mysql_auth_server_impl=none
+    networks: [ vitessnet ]
+    volumes:
+      # Optional: for persistent logs
+      - vtgate2-logs:/vt/log
+    user: vitess
+
+  #=== vtorc HA cluster ===
+  vtorc1:
+    image: vitess/vtorc:v22.0.0 # Use the same Vitess version
+    ports:
+      - "3400:3000" # vtorc Web UI and API
+    volumes:
+      # - ./scripts/vtorc.conf.json:/etc/vtorc.conf.json # Mount your vtorc config
+      - vtorc1-logs:/var/log/vtorc1 # For vtorc logs if configured in vtorc.conf.json
+    command: >
+      /vt/bin/vtorc --topo_implementation=etcd2 --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379 --topo_global_root=/vitess/global --port=15000 --instance-poll-time=1s --topo-information-refresh-duration=30s --alsologtostderr
+    networks: [ vitessnet ]
+    depends_on:
+      # Should start after etcd, vtctld and mysql instances are likely up
+      - etcd1
+      - etcd2
+      - etcd3
+      - vtctld
+      - mysql101
+      - mysql102
+      - mysql103
+      - mysql104
+    restart: on-failure
+    user: vitess
+
+  vtorc2:
+    image: vitess/vtorc:v22.0.0 # Use the same Vitess version
+    ports:
+      - "3401:3000" # vtorc Web UI and API
+    volumes:
+      # - ./scripts/vtorc.conf.json:/etc/vtorc.conf.json # Mount your vtorc config
+      - vtorc2-logs:/var/log/vtorc2 # For vtorc logs if configured in vtorc.conf.json
+    command: >
+      /vt/bin/vtorc --topo_implementation=etcd2 --topo_global_server_address="etcd1:2379,etcd2:2379,etcd3:2379" --topo_global_root=/vitess/global --port=15000 --instance-poll-time="1s" --topo-information-refresh-duration="30s" --alsologtostderr
+    networks: [ vitessnet ]
+    depends_on:
+      # Should start after etcd, vtctld and mysql instances are likely up
+      - etcd1
+      - etcd2
+      - etcd3
+      - vtctld
+      - mysql101
+      - mysql102
+      - mysql103
+      - mysql104
+    restart: on-failure
+    user: vitess
+  # === vtbackup (Vitess Backup Daemon) ===
+  # vtbackup:
+  #   image: vitess/vtbackup:v22.0.0 # Use the same Vitess version
+  #   ports:
+  #     - "15999:15999" # vtbackup gRPC port for daemon mode
+  #   volumes:
+  #     - vt-backups:/vt/backups # Persistent storage for backups
+  #     - vtbackup-logs:/vt/log # For vtbackup logs
+  #     # Note: vtbackup might need access to mysql.cnf if it invokes xtrabackup directly
+  #     # and xtrabackup needs to parse it. Usually, vtbackup connects to mysql via vttablet's db credentials.
+  #     # - ./scripts/mysql.cnf:/etc/mysql/mysql.cnf # Potentially needed by XtraBackup
+  #   command: >
+  #     /vt/bin/vtbackup
+  #     --log_dir=/vt/log
+  #     --port=15999
+  #     --topo_implementation=etcd2
+  #     --topo_global_server_address=etcd1:2379,etcd2:2379,etcd3:2379
+  #     --topo_global_root=/vitess/global
+  #     --backup_storage_implementation=file
+  #     --file_backup_storage_root=/vt/backups
+  #     --alsologtostderr
+  #   networks: [vitessnet]
+  #   depends_on:
+  #     - etcd1
+  #     - etcd2
+  #     - etcd3
+  #     - vtctld # vtbackup registers backups with vtctld
+  #   restart: on-failure
+  #   user: vitess
+  vtadmin:
+    image: vitess/vtadmin:v22.0.0 # Use the same Vitess version
+    ports:
+      - "14200:14200"
+      - "14201:14201"
+    volumes:
+      - ./scripts/discovery.json:/vt/discovery.json
+      - ./scripts/rbac.yaml:/vt/rbac.yaml
+    command: >
+      /vt/bin/vtadmin --addr=:14200 --no-rbac --http-tablet-url-tmpl=http://{{ .Tablet.Hostname }}:15{{ .Tablet.Alias.Uid }} --tracer=opentracing-jaeger --grpc-tracing --http-tracing --logtostderr --alsologtostderr --enable-dynamic-clusters=true --cluster="id=local,name=local,discovery=staticfile,discovery-staticfile-path=/vt/discovery.json,tablet-fqdn-tmpl={{ .Tablet.Hostname }}:15{{ .Tablet.Alias.Uid }}"
+
+    depends_on:
+      # Should start after etcd, vtctld and mysql instances are likely up
+      - vtctld
+      - vtgate2
+      - vtgate1
+
+    networks: [ vitessnet ]
+
+volumes:
+  etcd1-data:
+  etcd2-data:
+  etcd3-data:
+  mysql101-data:
+  mysql102-data:
+  mysql103-data:
+  mysql104-data:
+  vttablet101-logs:
+  vttablet102-logs:
+  vttablet103-logs:
+  vttablet104-logs:
+  vtctld-logs:
+  vtorc1-logs:
+  vtorc2-logs:
+  vtgate1-logs:
+  vtgate2-logs:
+  vtbackup-logs: # For vtbackup logs
+  vt-backups: # For storing actual backup files
+networks:
+  vitessnet:
+    driver: bridge

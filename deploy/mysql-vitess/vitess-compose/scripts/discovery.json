@@ -1,0 +1,24 @@
+{
+    "vtctlds": [
+        {
+            "host": {
+                "fqdn": "vtctld:15001",
+                "hostname": "vtctld:15000"
+            }
+        }
+    ],
+    "vtgates": [
+        {
+            "host": {
+                "fqdn": "vtgate1:15306",
+                "hostname": "vtgate1:17306"
+            }
+        },
+        {
+            "host": {
+                "fqdn": "vtgate2:15306",
+                "hostname": "vtgate2:17316"
+            }
+        }
+    ]
+}
